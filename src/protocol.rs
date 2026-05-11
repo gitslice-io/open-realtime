@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 // Client Events (client -> server)
 // ============================================================
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum ClientEvent {
     #[serde(rename = "session.update")]
@@ -73,7 +73,7 @@ pub enum ClientEvent {
 // Server Events (server -> client)
 // ============================================================
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum ServerEvent {
     #[serde(rename = "session.created")]

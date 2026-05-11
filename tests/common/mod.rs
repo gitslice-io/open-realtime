@@ -1,114 +1,58 @@
 use anyhow::{Context, Result};
-use futures_util::{SinkExt, StreamExt};
-use open_realtime::protocol::{ClientEvent, ResponseConfig, ServerEvent, SessionConfig};
+use open_realtime::protocol::{
+    ClientEvent, ConversationItem, ContentPart, ResponseConfig, ResponseState, ServerEvent,
+    SessionConfig,
+};
+use open_realtime::traits::RealtimeTransport;
 use std::time::Duration;
-use tokio::net::TcpStream;
-use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 
-pub type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
-
-/// A connected test session to the OpenAI Realtime API.
-pub struct TestSession {
-    pub ws: WsStream,
+/// A test session that wraps any RealtimeTransport.
+pub struct TestSession<T: RealtimeTransport> {
+    pub transport: T,
     pub session_id: Option<String>,
 }
 
-/// Connect to the Realtime API and wait for session.created.
-pub async fn connect() -> Result<TestSession> {
-    let api_key = std::env::var("OAI_KEY").context("OAI_KEY not set in environment")?;
+/// Connect using the given transport and wait for session.created.
+pub async fn connect_with<T: RealtimeTransport>(mut transport: T) -> Result<TestSession<T>> {
+    transport.connect().await.context("Failed to connect")?;
 
-    let url_str = "wss://api.openai.com/v1/realtime?model=gpt-realtime";
-    let uri: tokio_tungstenite::tungstenite::http::Uri = url_str
-        .parse()
-        .context("Failed to parse URL as URI")?;
-    let host = uri.host().context("No host in URL")?.to_string();
-
-    let request = tokio_tungstenite::tungstenite::http::Request::builder()
-        .uri(uri)
-        .header("Host", host)
-        .header("Connection", "Upgrade")
-        .header("Upgrade", "websocket")
-        .header("Sec-WebSocket-Version", "13")
-        .header(
-            "Sec-WebSocket-Key",
-            tokio_tungstenite::tungstenite::handshake::client::generate_key(),
-        )
-        .header(
-            "Authorization",
-            format!("Bearer {}", api_key),
-        )
-        .header("OpenAI-Beta", "realtime=v1")
-        .body(())
-        .context("Failed to build WebSocket request")?;
-
-    let (ws, _) = connect_async(request).await.context("Failed to connect")?;
-    let mut session = TestSession {
-        ws,
-        session_id: None,
-    };
-
-    // Wait for session.created
-    let event = session
-        .recv_timeout(Duration::from_secs(10))
+    let event = transport
+        .recv(Duration::from_secs(10))
         .await
-        .context("Timed out waiting for session.created")?;
-    match event {
-        ServerEvent::SessionCreated { session: s } => {
-            session.session_id = Some(s.id);
-        }
+        .context("No response from transport")?
+        .context("Transport returned None")?;
+
+    let session_id = match event {
+        ServerEvent::SessionCreated { session: s } => Some(s.id),
         ServerEvent::Error { error } => {
             anyhow::bail!("Connection error: {}", error.message);
         }
         other => {
             anyhow::bail!("Expected session.created, got: {}", other.event_type());
         }
-    }
+    };
 
-    Ok(session)
+    Ok(TestSession {
+        transport,
+        session_id,
+    })
 }
 
-impl TestSession {
+impl<T: RealtimeTransport> TestSession<T> {
     /// Send a JSON client event.
     pub async fn send(&mut self, event: &ClientEvent) -> Result<()> {
-        let json = serde_json::to_string(event)?;
-        self.ws
-            .send(tokio_tungstenite::tungstenite::Message::Text(
-                json.into(),
-            ))
-            .await?;
-        Ok(())
-    }
-
-    /// Send a raw JSON string.
-    pub async fn send_raw(&mut self, json: &str) -> Result<()> {
-        self.ws
-            .send(tokio_tungstenite::tungstenite::Message::Text(
-                json.to_string().into(),
-            ))
-            .await?;
-        Ok(())
+        self.transport.send(event).await
     }
 
     /// Receive the next server event with a timeout.
     pub async fn recv_timeout(&mut self, timeout: Duration) -> Result<ServerEvent> {
-        let msg = tokio::time::timeout(timeout, self.ws.next())
-            .await
-            .context("Timeout waiting for message")?
-            .context("WebSocket stream ended")?
-            .context("WebSocket error")?;
-
-        let text = msg.to_text().context("Expected text message")?;
-        let event: ServerEvent =
-            serde_json::from_str(text).context(format!("Failed to parse: {}", text))?;
-        Ok(event)
+        self.transport
+            .recv(timeout)
+            .await?
+            .context("Transport returned None (timeout or closed)")
     }
 
-    /// Receive the next server event (default 15s timeout).
-    pub async fn recv(&mut self) -> Result<ServerEvent> {
-        self.recv_timeout(Duration::from_secs(15)).await
-    }
-
-    /// Wait until we receive an event of a specific type, returning it.
+    /// Wait until we receive an event of a specific type.
     pub async fn expect_event_type(
         &mut self,
         expected_type: &str,
@@ -126,23 +70,14 @@ impl TestSession {
             if event.event_type() == expected_type || expected_type == "*" {
                 return Ok(event);
             }
-            // If we get an error while waiting, fail
             if let ServerEvent::Error { error } = &event {
-                anyhow::bail!("Received error while waiting for {}: {}", expected_type, error.message);
+                anyhow::bail!(
+                    "Received error while waiting for {}: {}",
+                    expected_type,
+                    error.message
+                );
             }
         }
-    }
-
-    /// Drain any pending events from the WebSocket (non-blocking, short timeout).
-    pub async fn drain(&mut self) -> Vec<ServerEvent> {
-        let mut events = Vec::new();
-        loop {
-            match self.recv_timeout(Duration::from_millis(200)).await {
-                Ok(event) => events.push(event),
-                Err(_) => break,
-            }
-        }
-        events
     }
 
     /// Update session configuration and wait for session.updated.
@@ -159,12 +94,12 @@ impl TestSession {
 
     /// Send a text message and trigger a response.
     pub async fn send_text(&mut self, text: &str) -> Result<()> {
-        let item = open_realtime::protocol::ConversationItem {
+        let item = ConversationItem {
             id: String::new(),
             item_type: "message".to_string(),
             status: String::new(),
             role: "user".to_string(),
-            content: vec![open_realtime::protocol::ContentPart::InputText {
+            content: vec![ContentPart::InputText {
                 content_type: "input_text".to_string(),
                 text: text.to_string(),
             }],
@@ -198,7 +133,7 @@ impl TestSession {
     }
 
     /// Wait for response.done and return the full response state.
-    pub async fn wait_for_response_done(&mut self) -> Result<open_realtime::protocol::ResponseState> {
+    pub async fn wait_for_response_done(&mut self) -> Result<ResponseState> {
         let event = self
             .expect_event_type("response.done", Duration::from_secs(30))
             .await?;
@@ -208,33 +143,64 @@ impl TestSession {
         }
     }
 
-    /// Get all text from a response's output items.
-    pub fn response_text(response: &open_realtime::protocol::ResponseState) -> String {
-        response
-            .output
-            .iter()
-            .filter_map(|item| {
-                item.content
-                    .iter()
-                    .find(|c| c.content_type == "text" || c.content_type == "output_text")
-                    .map(|c| {
-                        if !c.text.is_empty() {
-                            c.text.clone()
-                        } else {
-                            c.transcript.clone()
-                        }
-                    })
-            })
-            .collect::<Vec<_>>()
-            .join(" ")
+    /// Drain any pending events with a short timeout.
+    pub async fn drain(&mut self) -> Vec<ServerEvent> {
+        let mut events = Vec::new();
+        loop {
+            match self.transport.recv(Duration::from_millis(100)).await {
+                Ok(Some(event)) => events.push(event),
+                _ => break,
+            }
+        }
+        events
     }
 
-    /// Close the WebSocket connection.
+    /// Close the transport.
     pub async fn close(mut self) -> Result<()> {
-        self.ws
-            .close(None)
-            .await
-            .context("Failed to close WebSocket")?;
-        Ok(())
+        self.transport.close().await
     }
+}
+
+/// Get all text from a response's output items.
+pub fn response_text(response: &ResponseState) -> String {
+    response
+        .output
+        .iter()
+        .flat_map(|item| &item.content)
+        .filter(|c| c.content_type == "text" || c.content_type == "output_text")
+        .map(|c| {
+            if !c.text.is_empty() {
+                c.text.clone()
+            } else {
+                c.transcript.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Create a fake transport pre-configured with a session.
+pub fn fake_transport() -> open_realtime::transport::fake::FakeTransport {
+    let mut fake = open_realtime::transport::fake::FakeTransport::new();
+    fake.setup_session("sess_fake_test");
+    fake
+}
+
+/// Connect using the OpenAI realtime API (requires OAI_KEY env var).
+/// If REALTIME_URL is set, connects to that URL instead (e.g. ws://localhost:8080).
+pub async fn openai_connect() -> Result<TestSession<open_realtime::transport::openai::OpenAiTransport>> {
+    dotenvy::dotenv().ok();
+    if let Ok(url) = std::env::var("REALTIME_URL") {
+        // Use localhost or custom URL
+        let transport = open_realtime::transport::openai::OpenAiTransport::custom(&url, "fake-realtime");
+        return connect_with(transport).await;
+    }
+    let transport = open_realtime::transport::openai::OpenAiTransport::from_env()?;
+    connect_with(transport).await
+}
+
+/// Connect to the local realtime server at ws://127.0.0.1:8080.
+pub async fn localhost_connect() -> Result<TestSession<open_realtime::transport::openai::OpenAiTransport>> {
+    let transport = open_realtime::transport::openai::OpenAiTransport::localhost("fake-realtime");
+    connect_with(transport).await
 }

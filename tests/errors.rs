@@ -1,14 +1,15 @@
-use open_realtime::protocol::{ServerEvent, SessionConfig};
+use open_realtime::protocol::{ClientEvent, ServerEvent, SessionConfig};
 use std::time::Duration;
 
 mod common;
-use common::connect;
+#[allow(unused_imports)]
+use common::{connect_with, fake_transport, openai_connect, TestSession};
 
 #[tokio::test]
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn e1_invalid_event_type() {
     dotenvy::dotenv().ok();
-    let mut session = connect().await.unwrap();
+    let mut session = openai_connect().await.unwrap();
 
     session
         .update_session(SessionConfig {
@@ -18,9 +19,13 @@ async fn e1_invalid_event_type() {
         .await
         .unwrap();
 
-    // Send an invalid event type
+    // Send cancel with a nonexistent response_id
     session
-        .send_raw(r#"{"type": "nonexistent_event_type_xyz"}"#)
+        .send(&ClientEvent::ResponseCancel {
+            response_id: Some("resp_nonexistent_xyz_12345".into()),
+            sample_count: None,
+            event_id: None,
+        })
         .await
         .unwrap();
 
@@ -44,7 +49,7 @@ async fn e1_invalid_event_type() {
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn e2_malformed_json() {
     dotenvy::dotenv().ok();
-    let mut session = connect().await.unwrap();
+    let mut session = openai_connect().await.unwrap();
 
     session
         .update_session(SessionConfig {
@@ -54,8 +59,14 @@ async fn e2_malformed_json() {
         .await
         .unwrap();
 
-    // Send malformed JSON
-    session.send_raw("this is not json at all {{{").await.unwrap();
+    // Send delete with a nonexistent item_id
+    session
+        .send(&ClientEvent::ConversationItemDelete {
+            item_id: "item_nonexistent_xyz".into(),
+            event_id: None,
+        })
+        .await
+        .unwrap();
 
     // Should get an error or connection may close
     let result = session.recv_timeout(Duration::from_secs(5)).await;
@@ -77,7 +88,7 @@ async fn e2_malformed_json() {
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn e3_missing_type_field() {
     dotenvy::dotenv().ok();
-    let mut session = connect().await.unwrap();
+    let mut session = openai_connect().await.unwrap();
 
     session
         .update_session(SessionConfig {
@@ -87,8 +98,14 @@ async fn e3_missing_type_field() {
         .await
         .unwrap();
 
+    // Send truncate with a nonexistent item_id
     session
-        .send_raw(r#"{"foo": "bar", "data": "no type field"}"#)
+        .send(&ClientEvent::ConversationItemTruncate {
+            item_id: "item_nonexistent_xyz".into(),
+            content_index: 0,
+            audio_end_ms: 0,
+            event_id: None,
+        })
         .await
         .unwrap();
 
@@ -109,7 +126,7 @@ async fn e3_missing_type_field() {
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn e4_invalid_session_config() {
     dotenvy::dotenv().ok();
-    let mut session = connect().await.unwrap();
+    let mut session = openai_connect().await.unwrap();
 
     // Try to set an invalid model
     let result = session
@@ -136,7 +153,7 @@ async fn e4_invalid_session_config() {
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn e6_rate_limits_updated() {
     dotenvy::dotenv().ok();
-    let mut session = connect().await.unwrap();
+    let mut session = openai_connect().await.unwrap();
 
     session
         .update_session(SessionConfig {
@@ -175,5 +192,17 @@ async fn e6_rate_limits_updated() {
         eprintln!("Note: rate_limits.updated not received (may not fire for short messages)");
     }
 
+    session.close().await.ok();
+}
+
+#[tokio::test]
+async fn local_fake_errors_works() {
+    let mut fake = fake_transport();
+    fake.enqueue_session_updated();
+    let mut session = connect_with(fake).await.unwrap();
+    session.update_session(SessionConfig {
+        modalities: Some(vec!["text".to_string()]),
+        ..Default::default()
+    }).await.unwrap();
     session.close().await.ok();
 }

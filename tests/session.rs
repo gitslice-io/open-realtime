@@ -2,13 +2,14 @@ use open_realtime::protocol::{
     ReasoningConfig, SessionConfig, TurnDetection,
 };
 mod common;
-use common::connect;
+#[allow(unused_imports)]
+use common::{connect_with, fake_transport, openai_connect, TestSession};
 
 #[tokio::test]
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn s1_session_created_structure() {
     dotenvy::dotenv().ok();
-    let session = connect().await.unwrap();
+    let session = openai_connect().await.unwrap();
     // session_id should be set from session.created
     assert!(session.session_id.is_some());
     assert!(!session.session_id.as_ref().unwrap().is_empty());
@@ -19,7 +20,7 @@ async fn s1_session_created_structure() {
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn s2_update_instructions() {
     dotenvy::dotenv().ok();
-    let mut session = connect().await.unwrap();
+    let mut session = openai_connect().await.unwrap();
 
     session
         .update_session(SessionConfig {
@@ -36,7 +37,7 @@ async fn s2_update_instructions() {
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn s3_update_voice_before_audio() {
     dotenvy::dotenv().ok();
-    let mut session = connect().await.unwrap();
+    let mut session = openai_connect().await.unwrap();
 
     session
         .update_session(SessionConfig {
@@ -53,7 +54,7 @@ async fn s3_update_voice_before_audio() {
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn s5_update_modalities() {
     dotenvy::dotenv().ok();
-    let mut session = connect().await.unwrap();
+    let mut session = openai_connect().await.unwrap();
 
     // Set text-only
     session
@@ -80,7 +81,7 @@ async fn s5_update_modalities() {
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn s6_update_temperature() {
     dotenvy::dotenv().ok();
-    let mut session = connect().await.unwrap();
+    let mut session = openai_connect().await.unwrap();
 
     session
         .update_session(SessionConfig {
@@ -97,7 +98,7 @@ async fn s6_update_temperature() {
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn s7_update_reasoning_effort() {
     dotenvy::dotenv().ok();
-    let mut session = connect().await.unwrap();
+    let mut session = openai_connect().await.unwrap();
 
     // Set low reasoning effort (only available on gpt-realtime-2)
     match session
@@ -123,7 +124,7 @@ async fn s7_update_reasoning_effort() {
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn s8_update_turn_detection() {
     dotenvy::dotenv().ok();
-    let mut session = connect().await.unwrap();
+    let mut session = openai_connect().await.unwrap();
 
     // Set semantic VAD
     session
@@ -147,7 +148,7 @@ async fn s8_update_turn_detection() {
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn s9_update_max_tokens() {
     dotenvy::dotenv().ok();
-    let mut session = connect().await.unwrap();
+    let mut session = openai_connect().await.unwrap();
 
     session
         .update_session(SessionConfig {
@@ -157,5 +158,17 @@ async fn s9_update_max_tokens() {
         .await
         .unwrap();
 
+    session.close().await.ok();
+}
+
+#[tokio::test]
+async fn local_fake_session_works() {
+    let mut fake = fake_transport();
+    fake.enqueue_session_updated();
+    let mut session = connect_with(fake).await.unwrap();
+    session.update_session(SessionConfig {
+        instructions: Some("Be helpful.".into()),
+        ..Default::default()
+    }).await.unwrap();
     session.close().await.ok();
 }

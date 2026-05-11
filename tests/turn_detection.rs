@@ -3,13 +3,14 @@ use open_realtime::protocol::{ClientEvent, ServerEvent, SessionConfig, TurnDetec
 use std::time::Duration;
 
 mod common;
-use common::connect;
+#[allow(unused_imports)]
+use common::{connect_with, fake_transport, openai_connect, TestSession};
 
 #[tokio::test]
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn d1_vad_semantic_default() {
     dotenvy::dotenv().ok();
-    let mut session = connect().await.unwrap();
+    let mut session = openai_connect().await.unwrap();
 
     // Default VAD should be semantic_vad
     // We verify by sending a text message and getting a response
@@ -34,7 +35,7 @@ async fn d1_vad_semantic_default() {
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn d2_vad_speech_started_stopped() {
     dotenvy::dotenv().ok();
-    let mut session = connect().await.unwrap();
+    let mut session = openai_connect().await.unwrap();
 
     session
         .update_session(SessionConfig {
@@ -97,7 +98,7 @@ async fn d2_vad_speech_started_stopped() {
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn d4_vad_disabled_no_auto_response() {
     dotenvy::dotenv().ok();
-    let mut session = connect().await.unwrap();
+    let mut session = openai_connect().await.unwrap();
 
     session
         .update_session(SessionConfig {
@@ -158,7 +159,7 @@ async fn d4_vad_disabled_no_auto_response() {
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn d7_clear_audio_buffer() {
     dotenvy::dotenv().ok();
-    let mut session = connect().await.unwrap();
+    let mut session = openai_connect().await.unwrap();
 
     session
         .update_session(SessionConfig {
@@ -194,5 +195,17 @@ async fn d7_clear_audio_buffer() {
     // Clear is a fire-and-forget operation - there's no acknowledgment event
     // Just verify no crash
 
+    session.close().await.ok();
+}
+
+#[tokio::test]
+async fn local_fake_turn_detection_works() {
+    let mut fake = fake_transport();
+    fake.enqueue_session_updated();
+    let mut session = connect_with(fake).await.unwrap();
+    session.update_session(SessionConfig {
+        modalities: Some(vec!["text".to_string()]),
+        ..Default::default()
+    }).await.unwrap();
     session.close().await.ok();
 }

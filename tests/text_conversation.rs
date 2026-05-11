@@ -1,11 +1,13 @@
 use open_realtime::protocol::{ServerEvent, SessionConfig};
+use open_realtime::transport::openai::OpenAiTransport;
 use std::time::Duration;
 
 mod common;
-use common::{connect, TestSession};
+#[allow(unused_imports)]
+use common::{connect_with, fake_transport, openai_connect, response_text, TestSession};
 
-async fn setup_text_session() -> TestSession {
-    let mut session = connect().await.unwrap();
+async fn setup_text_session() -> TestSession<OpenAiTransport> {
+    let mut session = openai_connect().await.unwrap();
     session
         .update_session(SessionConfig {
             modalities: Some(vec!["text".to_string()]),
@@ -27,7 +29,7 @@ async fn t1_simple_text_qa() {
     session.send_text("What is 2+2? Answer with just the number.").await.unwrap();
     let response = session.wait_for_response_done().await.unwrap();
 
-    let text = TestSession::response_text(&response);
+    let text = response_text(&response);
     assert!(!text.is_empty(), "Expected non-empty response text");
     assert!(response.status == "completed", "Expected completed status, got: {}", response.status);
 
@@ -54,7 +56,7 @@ async fn t2_text_delta_streaming() {
             }
             ServerEvent::ResponseDone { response } => {
                 received_done = true;
-                let full_text = TestSession::response_text(&response);
+                let full_text = response_text(&response);
                 let joined: String = deltas.iter().map(|s| s.as_str()).collect();
                 // Text deltas may or may not be received depending on model
                 if !joined.is_empty() {
@@ -90,7 +92,7 @@ async fn t3_multi_turn_conversation() {
     // Turn 2
     session.send_text("What is my name? Answer with just the name.").await.unwrap();
     let response = session.wait_for_response_done().await.unwrap();
-    let text = TestSession::response_text(&response);
+    let text = response_text(&response);
     assert!(text.to_lowercase().contains("alice"),
         "Expected response to remember name 'Alice', got: {}", text);
 
@@ -101,7 +103,7 @@ async fn t3_multi_turn_conversation() {
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn t4_audio_only_modality_no_text_deltas() {
     dotenvy::dotenv().ok();
-    let mut session = connect().await.unwrap();
+    let mut session = openai_connect().await.unwrap();
     // Keep audio modality but ask simple question - we should still get response.done
     // but might not get text deltas in audio-only mode
     session
@@ -119,5 +121,23 @@ async fn t4_audio_only_modality_no_text_deltas() {
     assert!(response.status == "completed",
         "Expected completed status, got: {}", response.status);
 
+    session.close().await.ok();
+}
+
+#[tokio::test]
+async fn local_fake_text_works() {
+    let mut fake = fake_transport();
+    fake.enqueue_session_updated();
+    fake.enqueue_text_response("Hello", "Hi there!");
+    let mut session = connect_with(fake).await.unwrap();
+    session.update_session(SessionConfig {
+        modalities: Some(vec!["text".to_string()]),
+        ..Default::default()
+    }).await.unwrap();
+    session.send_text("Hello").await.unwrap();
+    let response = session.wait_for_response_done().await.unwrap();
+    assert_eq!(response.status, "completed");
+    let text = response_text(&response);
+    assert!(!text.is_empty());
     session.close().await.ok();
 }
