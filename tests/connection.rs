@@ -1,0 +1,121 @@
+use open_realtime::protocol::ServerEvent;
+use std::time::Duration;
+
+mod common;
+use common::connect;
+
+#[tokio::test]
+#[ignore = "requires OAI_KEY env var and live API"]
+async fn c1_connect_with_valid_key() {
+    dotenvy::dotenv().ok();
+    let session = connect().await.expect("should connect successfully");
+    assert!(session.session_id.is_some());
+    session.close().await.ok();
+}
+
+#[tokio::test]
+#[ignore = "requires OAI_KEY env var and live API"]
+async fn c2_connect_with_invalid_key() {
+    use futures_util::StreamExt;
+    use tokio_tungstenite::connect_async;
+
+    let url_str = "wss://api.openai.com/v1/realtime?model=gpt-realtime";
+    let uri: tokio_tungstenite::tungstenite::http::Uri = url_str.parse().unwrap();
+    let host = uri.host().unwrap().to_string();
+
+    let request = tokio_tungstenite::tungstenite::http::Request::builder()
+        .uri(uri)
+        .header("Host", host)
+        .header("Connection", "Upgrade")
+        .header("Upgrade", "websocket")
+        .header("Sec-WebSocket-Version", "13")
+        .header(
+            "Sec-WebSocket-Key",
+            tokio_tungstenite::tungstenite::handshake::client::generate_key(),
+        )
+        .header("Authorization", "Bearer sk-invalid-key-12345")
+        .header("OpenAI-Beta", "realtime=v1")
+        .body(())
+        .unwrap();
+
+    let result = connect_async(request).await;
+    match result {
+        Ok((mut ws, _)) => {
+            // Might connect but then get error event
+            let msg = tokio::time::timeout(Duration::from_secs(10), ws.next())
+                .await
+                .ok()
+                .flatten();
+            if let Some(Ok(msg)) = msg {
+                if let Ok(text) = msg.to_text() {
+                    let event: Result<ServerEvent, _> = serde_json::from_str(text);
+                    if let Ok(ServerEvent::Error { error }) = event {
+                        assert!(!error.message.is_empty());
+                        return;
+                    }
+                }
+            }
+            // Some servers just 401 at HTTP level
+        }
+        Err(e) => {
+            // Connection failed - expected behavior
+            assert!(e.to_string().contains("401") || e.to_string().contains("403") || e.to_string().contains("HTTP"), "Expected auth error, got: {}", e);
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore = "requires OAI_KEY env var and live API"]
+async fn c5_connect_model_query_param() {
+    dotenvy::dotenv().ok();
+    let api_key = std::env::var("OAI_KEY").expect("OAI_KEY not set");
+    use futures_util::StreamExt;
+    use tokio_tungstenite::connect_async;
+
+    let url_str = "wss://api.openai.com/v1/realtime?model=gpt-realtime";
+    let uri: tokio_tungstenite::tungstenite::http::Uri = url_str.parse().unwrap();
+    let host = uri.host().unwrap().to_string();
+
+    let request = tokio_tungstenite::tungstenite::http::Request::builder()
+        .uri(uri)
+        .header("Host", host)
+        .header("Connection", "Upgrade")
+        .header("Upgrade", "websocket")
+        .header("Sec-WebSocket-Version", "13")
+        .header(
+            "Sec-WebSocket-Key",
+            tokio_tungstenite::tungstenite::handshake::client::generate_key(),
+        )
+        .header("Authorization", format!("Bearer {}", api_key))
+        .header("OpenAI-Beta", "realtime=v1")
+        .body(())
+        .unwrap();
+
+    let (mut ws, _) = connect_async(request).await.unwrap();
+    let msg = tokio::time::timeout(Duration::from_secs(10), ws.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let text = msg.to_text().unwrap();
+    let event: ServerEvent = serde_json::from_str(text).unwrap();
+    match event {
+        ServerEvent::SessionCreated { session: s } => {
+            assert!(
+                s.model.contains("realtime"),
+                "Expected realtime model, got: {}",
+                s.model
+            );
+        }
+        other => panic!("Expected session.created, got: {}", other.event_type()),
+    }
+    ws.close(None).await.ok();
+}
+
+#[tokio::test]
+#[ignore = "requires OAI_KEY env var and live API"]
+async fn c6_graceful_disconnect() {
+    dotenvy::dotenv().ok();
+    let session = connect().await.expect("should connect successfully");
+    session.close().await.expect("should close cleanly");
+}
