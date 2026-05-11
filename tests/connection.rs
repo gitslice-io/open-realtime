@@ -71,6 +71,8 @@ async fn c5_connect_model_query_param() {
     dotenvy::dotenv().ok();
     use futures_util::StreamExt;
     use tokio_tungstenite::connect_async;
+    let is_local = std::env::var("REALTIME_URL").is_ok();
+    let api_key = std::env::var("OAI_KEY").unwrap_or_default();
 
     let api_key = std::env::var("OAI_KEY").unwrap_or_default();
     let is_local = std::env::var("REALTIME_URL").is_ok();
@@ -102,7 +104,6 @@ async fn c5_connect_model_query_param() {
     }
 
     let request = builder.body(()).unwrap();
-        .unwrap();
 
     let (mut ws, _) = connect_async(request).await.unwrap();
     let msg = tokio::time::timeout(Duration::from_secs(10), ws.next())
