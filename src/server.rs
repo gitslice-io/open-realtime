@@ -1,14 +1,13 @@
 use anyhow::{Context, Result};
 use crate::audio;
-use crate::pipeline::{FakeLlm, FakeStt, FakeTts, FakeTurnDetector};
+use crate::pipeline::{FakeLlm, FakeTts};
 use crate::protocol::{
     AudioFormat, ClientEvent, ContentPart, ConversationItem, OutputContent,
     ResponseOutputItem, ResponseState, ServerEvent, SessionConfig, SessionState, Tool,
     TurnDetection, Usage,
 };
-use crate::traits::{LanguageModel, SpeechToText, TextToSpeech, TurnDetector};
+use crate::traits::{LanguageModel, TextToSpeech};
 use futures_util::{SinkExt, StreamExt};
-use std::collections::HashMap;
 use tokio::sync::mpsc;
 
 /// Manages a single Realtime API session over a WebSocket connection.
@@ -115,7 +114,7 @@ impl SessionHandler {
             }
             ClientEvent::ConversationItemCreate {
                 item,
-                previous_item_id,
+                previous_item_id: _,
                 ..
             } => {
                 let mut item = item;
@@ -136,8 +135,8 @@ impl SessionHandler {
                 self.handle_response_create(response).await;
             }
             ClientEvent::ResponseCancel {
-                response_id,
-                sample_count,
+                response_id: _,
+                sample_count: _,
                 ..
             } => {
                 if let Some(cancel_tx) = self.cancel_tx.take() {
@@ -448,7 +447,7 @@ impl SessionHandler {
 
     async fn handle_tool_call(
         &mut self,
-        user_text: &str,
+        _user_text: &str,
         tools: &[Tool],
         response_id: &str,
         item_id: &str,
@@ -557,7 +556,7 @@ async fn handle_connection(
         while let Some(event) = server_rx.recv().await {
             let json = serde_json::to_string(&event).unwrap();
             if ws_tx
-                .send(tokio_tungstenite::tungstenite::Message::Text(json.into()))
+                .send(tokio_tungstenite::tungstenite::Message::Text(json))
                 .await
                 .is_err()
             {

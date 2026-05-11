@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # Fast local tests — no API key, no network needed
+  local-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run local (in-memory) tests
+        run: cargo test -- --test-threads=4
+
+  # End-to-end tests against the local realtime server
+  e2e-localhost:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build server binary
+        run: cargo build --bin server
+      - name: Start local server
+        run: |
+          nohup target/debug/server &
+          sleep 2
+      - name: Run e2e tests against local server
+        run: REALTIME_URL=ws://127.0.0.1:8080/v1/realtime cargo test -- --ignored --test-threads=1
+      - name: Run localhost integration tests
+        run: cargo test --test localhost -- --ignored --test-threads=1
+
+  # Lint check (lib only — test binaries have benign unused-import warnings)
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Run clippy on library
+        run: cargo clippy --lib -- -D warnings

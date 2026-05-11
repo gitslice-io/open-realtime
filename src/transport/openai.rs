@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use futures_util::{SinkExt, StreamExt};
-use crate::protocol::{ClientEvent, ServerEvent, SessionConfig, SessionState};
+use crate::protocol::{ClientEvent, ServerEvent};
 use crate::traits::RealtimeTransport;
 use std::time::Duration;
 use tokio::net::TcpStream;
@@ -85,7 +85,7 @@ impl RealtimeTransport for OpenAiTransport {
         let json = serde_json::to_string(event)?;
         if let Some(ws) = &mut self.ws {
             ws.send(tokio_tungstenite::tungstenite::Message::Text(
-                json.into(),
+                json,
             ))
             .await?;
         }
