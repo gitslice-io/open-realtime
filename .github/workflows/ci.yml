@@ -37,7 +37,7 @@ jobs:
       - name: Run e2e tests against local server
         run: REALTIME_URL=ws://127.0.0.1:8080/v1/realtime cargo test -- --ignored --test-threads=1
       - name: Run localhost integration tests
-        run: cargo test --test localhost -- --test-threads=1
+        run: cargo test --test localhost -- --ignored --test-threads=1
 
   # Lint check (lib only — test binaries have benign unused-import warnings)
   clippy:

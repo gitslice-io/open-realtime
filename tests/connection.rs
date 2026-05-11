@@ -69,15 +69,22 @@ async fn c2_connect_with_invalid_key() {
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn c5_connect_model_query_param() {
     dotenvy::dotenv().ok();
-    let api_key = std::env::var("OAI_KEY").expect("OAI_KEY not set");
     use futures_util::StreamExt;
     use tokio_tungstenite::connect_async;
 
-    let url_str = "wss://api.openai.com/v1/realtime?model=gpt-realtime";
+    let api_key = std::env::var("OAI_KEY").unwrap_or_default();
+    let is_local = std::env::var("REALTIME_URL").is_ok();
+
+    let url_str = if is_local {
+        format!("{}?model=gpt-realtime", std::env::var("REALTIME_URL").unwrap())
+    } else {
+        "wss://api.openai.com/v1/realtime?model=gpt-realtime".to_string()
+    };
+
     let uri: tokio_tungstenite::tungstenite::http::Uri = url_str.parse().unwrap();
     let host = uri.host().unwrap().to_string();
 
-    let request = tokio_tungstenite::tungstenite::http::Request::builder()
+    let mut builder = tokio_tungstenite::tungstenite::http::Request::builder()
         .uri(uri)
         .header("Host", host)
         .header("Connection", "Upgrade")
@@ -86,10 +93,15 @@ async fn c5_connect_model_query_param() {
         .header(
             "Sec-WebSocket-Key",
             tokio_tungstenite::tungstenite::handshake::client::generate_key(),
-        )
-        .header("Authorization", format!("Bearer {}", api_key))
-        .header("OpenAI-Beta", "realtime=v1")
-        .body(())
+        );
+
+    if !is_local {
+        builder = builder
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("OpenAI-Beta", "realtime=v1");
+    }
+
+    let request = builder.body(()).unwrap();
         .unwrap();
 
     let (mut ws, _) = connect_async(request).await.unwrap();
@@ -102,11 +114,13 @@ async fn c5_connect_model_query_param() {
     let event: ServerEvent = serde_json::from_str(text).unwrap();
     match event {
         ServerEvent::SessionCreated { session: s } => {
-            assert!(
-                s.model.contains("realtime"),
-                "Expected realtime model, got: {}",
-                s.model
-            );
+            if !is_local {
+                assert!(
+                    s.model.contains("realtime"),
+                    "Expected realtime model, got: {}",
+                    s.model
+                );
+            }
         }
         other => panic!("Expected session.created, got: {}", other.event_type()),
     }

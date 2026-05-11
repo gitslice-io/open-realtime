@@ -16,6 +16,7 @@ use common::{localhost_connect, response_text, TestSession};
 // ============================================================
 
 #[tokio::test]
+#[ignore = "requires local server on port 8080"]
 async fn localhost_connection() {
     let session = localhost_connect().await.expect("should connect to local server");
     assert!(session.session_id.is_some());
@@ -23,6 +24,7 @@ async fn localhost_connection() {
 }
 
 #[tokio::test]
+#[ignore = "requires local server on port 8080"]
 async fn localhost_text_conversation() {
     let mut session = localhost_connect().await.unwrap();
 
@@ -49,6 +51,7 @@ async fn localhost_text_conversation() {
 }
 
 #[tokio::test]
+#[ignore = "requires local server on port 8080"]
 async fn localhost_audio_response() {
     let mut session = localhost_connect().await.unwrap();
 
@@ -85,6 +88,7 @@ async fn localhost_audio_response() {
 }
 
 #[tokio::test]
+#[ignore = "requires local server on port 8080"]
 async fn localhost_function_calling() {
     let mut session = localhost_connect().await.unwrap();
 
@@ -196,6 +200,7 @@ async fn localhost_function_calling() {
 }
 
 #[tokio::test]
+#[ignore = "requires local server on port 8080"]
 async fn localhost_multi_turn() {
     let mut session = localhost_connect().await.unwrap();
 
@@ -221,6 +226,7 @@ async fn localhost_multi_turn() {
 }
 
 #[tokio::test]
+#[ignore = "requires local server on port 8080"]
 async fn localhost_session_update() {
     let mut session = localhost_connect().await.unwrap();
 
@@ -242,6 +248,7 @@ async fn localhost_session_update() {
 }
 
 #[tokio::test]
+#[ignore = "requires local server on port 8080"]
 async fn localhost_cancel_response() {
     let mut session = localhost_connect().await.unwrap();
 
@@ -296,6 +303,7 @@ async fn localhost_cancel_response() {
 }
 
 #[tokio::test]
+#[ignore = "requires local server on port 8080"]
 async fn localhost_streaming_text_deltas() {
     let mut session = localhost_connect().await.unwrap();
 
