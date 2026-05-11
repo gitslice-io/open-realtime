@@ -4,7 +4,8 @@ use open_realtime::protocol::{
 use std::time::Duration;
 
 mod common;
-use common::connect;
+#[allow(unused_imports)]
+use common::{connect_with, fake_transport, openai_connect, TestSession};
 
 fn weather_tool() -> Tool {
     Tool {
@@ -28,7 +29,7 @@ fn weather_tool() -> Tool {
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn f1_register_single_tool() {
     dotenvy::dotenv().ok();
-    let mut session = connect().await.unwrap();
+    let mut session = openai_connect().await.unwrap();
 
     session
         .update_session(SessionConfig {
@@ -49,7 +50,7 @@ async fn f1_register_single_tool() {
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn f3_trigger_tool_call() {
     dotenvy::dotenv().ok();
-    let mut session = connect().await.unwrap();
+    let mut session = openai_connect().await.unwrap();
 
     session
         .update_session(SessionConfig {
@@ -129,7 +130,7 @@ async fn f3_trigger_tool_call() {
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn f6_register_multiple_tools() {
     dotenvy::dotenv().ok();
-    let mut session = connect().await.unwrap();
+    let mut session = openai_connect().await.unwrap();
 
     session
         .update_session(SessionConfig {
@@ -156,5 +157,21 @@ async fn f6_register_multiple_tools() {
         .await
         .unwrap();
 
+    session.close().await.ok();
+}
+
+#[tokio::test]
+async fn local_fake_tools_works() {
+    let mut fake = fake_transport();
+    fake.enqueue_session_updated();
+    fake.enqueue_text_response("Hello", "Hi!");
+    let mut session = connect_with(fake).await.unwrap();
+    session.update_session(SessionConfig {
+        modalities: Some(vec!["text".to_string()]),
+        ..Default::default()
+    }).await.unwrap();
+    session.send_text("Hello").await.unwrap();
+    let response = session.wait_for_response_done().await.unwrap();
+    assert_eq!(response.status, "completed");
     session.close().await.ok();
 }

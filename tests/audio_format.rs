@@ -3,13 +3,14 @@ use open_realtime::protocol::{ServerEvent, SessionConfig};
 use std::time::Duration;
 
 mod common;
-use common::connect;
+#[allow(unused_imports)]
+use common::{connect_with, fake_transport, openai_connect, TestSession};
 
 #[tokio::test]
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn af1_pcm16_24k_output_valid() {
     dotenvy::dotenv().ok();
-    let mut session = connect().await.unwrap();
+    let mut session = openai_connect().await.unwrap();
 
     session
         .update_session(SessionConfig {
@@ -64,7 +65,7 @@ async fn af1_pcm16_24k_output_valid() {
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn af2_pcm16_range_valid() {
     dotenvy::dotenv().ok();
-    let mut session = connect().await.unwrap();
+    let mut session = openai_connect().await.unwrap();
 
     session
         .update_session(SessionConfig {
@@ -153,4 +154,20 @@ async fn af5_generate_tone_valid() {
 
     // At least some samples should be non-zero
     assert!(samples.iter().any(|&s| s != 0), "Tone should have non-zero samples");
+}
+
+#[tokio::test]
+async fn local_fake_audio_format_works() {
+    let mut fake = fake_transport();
+    fake.enqueue_session_updated();
+    fake.enqueue_audio_response("hello", "base64audiodata");
+    let mut session = connect_with(fake).await.unwrap();
+    session.update_session(SessionConfig {
+        modalities: Some(vec!["audio".to_string(), "text".to_string()]),
+        ..Default::default()
+    }).await.unwrap();
+    session.send_text("Say hello").await.unwrap();
+    let response = session.wait_for_response_done().await.unwrap();
+    assert_eq!(response.status, "completed");
+    session.close().await.ok();
 }

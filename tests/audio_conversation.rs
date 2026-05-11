@@ -3,13 +3,14 @@ use open_realtime::protocol::{ClientEvent, ServerEvent, SessionConfig, TurnDetec
 use std::time::Duration;
 
 mod common;
-use common::connect;
+#[allow(unused_imports)]
+use common::{connect_with, fake_transport, openai_connect, TestSession};
 
 #[tokio::test]
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn a1_stream_audio_with_vad() {
     dotenvy::dotenv().ok();
-    let mut session = connect().await.unwrap();
+    let mut session = openai_connect().await.unwrap();
 
     // Set up with VAD
     session
@@ -75,7 +76,7 @@ async fn a1_stream_audio_with_vad() {
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn a2_stream_audio_manual_vad_disabled() {
     dotenvy::dotenv().ok();
-    let mut session = connect().await.unwrap();
+    let mut session = openai_connect().await.unwrap();
 
     session
         .update_session(SessionConfig {
@@ -129,7 +130,7 @@ async fn a2_stream_audio_manual_vad_disabled() {
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn a3_audio_output_deltas_for_text() {
     dotenvy::dotenv().ok();
-    let mut session = connect().await.unwrap();
+    let mut session = openai_connect().await.unwrap();
 
     session
         .update_session(SessionConfig {
@@ -172,7 +173,7 @@ async fn a3_audio_output_deltas_for_text() {
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn a4_audio_output_transcript() {
     dotenvy::dotenv().ok();
-    let mut session = connect().await.unwrap();
+    let mut session = openai_connect().await.unwrap();
 
     session
         .update_session(SessionConfig {
@@ -211,5 +212,21 @@ async fn a4_audio_output_transcript() {
         }
     }
 
+    session.close().await.ok();
+}
+
+#[tokio::test]
+async fn local_fake_audio_works() {
+    let mut fake = fake_transport();
+    fake.enqueue_session_updated();
+    fake.enqueue_audio_response("hello", "base64audiodata");
+    let mut session = connect_with(fake).await.unwrap();
+    session.update_session(SessionConfig {
+        modalities: Some(vec!["audio".to_string(), "text".to_string()]),
+        ..Default::default()
+    }).await.unwrap();
+    session.send_text("Say hello").await.unwrap();
+    let response = session.wait_for_response_done().await.unwrap();
+    assert_eq!(response.status, "completed");
     session.close().await.ok();
 }

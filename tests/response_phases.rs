@@ -2,13 +2,14 @@ use open_realtime::protocol::{ServerEvent, SessionConfig};
 use std::time::Duration;
 
 mod common;
-use common::{connect, TestSession};
+#[allow(unused_imports)]
+use common::{connect_with, fake_transport, openai_connect, response_text, TestSession};
 
 #[tokio::test]
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn p1_commentary_phase_present() {
     dotenvy::dotenv().ok();
-    let mut session = connect().await.unwrap();
+    let mut session = openai_connect().await.unwrap();
 
     session
         .update_session(SessionConfig {
@@ -59,7 +60,7 @@ async fn p1_commentary_phase_present() {
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn p4_reasoning_effort_affects_phases() {
     dotenvy::dotenv().ok();
-    let mut session = connect().await.unwrap();
+    let mut session = openai_connect().await.unwrap();
 
     // reasoning parameter may not be available on all models
     match session
@@ -95,8 +96,26 @@ async fn p4_reasoning_effort_affects_phases() {
 
     let response = session.wait_for_response_done().await.unwrap();
     assert!(response.status == "completed");
-    let text = TestSession::response_text(&response);
+    let text = response_text(&response);
     assert!(!text.is_empty());
 
+    session.close().await.ok();
+}
+
+#[tokio::test]
+async fn local_fake_phases_works() {
+    let mut fake = fake_transport();
+    fake.enqueue_session_updated();
+    fake.enqueue_text_response("Question", "Answer.");
+    let mut session = connect_with(fake).await.unwrap();
+    session.update_session(SessionConfig {
+        modalities: Some(vec!["text".to_string()]),
+        ..Default::default()
+    }).await.unwrap();
+    session.send_text("Question").await.unwrap();
+    let response = session.wait_for_response_done().await.unwrap();
+    assert_eq!(response.status, "completed");
+    let text = response_text(&response);
+    assert!(!text.is_empty());
     session.close().await.ok();
 }

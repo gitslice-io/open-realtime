@@ -4,13 +4,14 @@ use open_realtime::protocol::{
 use std::time::Duration;
 
 mod common;
-use common::connect;
+#[allow(unused_imports)]
+use common::{connect_with, fake_transport, openai_connect, TestSession};
 
 #[tokio::test]
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn i1_create_text_item() {
     dotenvy::dotenv().ok();
-    let mut session = connect().await.unwrap();
+    let mut session = openai_connect().await.unwrap();
 
     session
         .update_session(SessionConfig {
@@ -66,7 +67,7 @@ async fn i1_create_text_item() {
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn i4_delete_item() {
     dotenvy::dotenv().ok();
-    let mut session = connect().await.unwrap();
+    let mut session = openai_connect().await.unwrap();
 
     session
         .update_session(SessionConfig {
@@ -104,5 +105,21 @@ async fn i4_delete_item() {
         }
     }
 
+    session.close().await.ok();
+}
+
+#[tokio::test]
+async fn local_fake_items_works() {
+    let mut fake = fake_transport();
+    fake.enqueue_session_updated();
+    fake.enqueue_text_response("Hello", "Hi there!");
+    let mut session = connect_with(fake).await.unwrap();
+    session.update_session(SessionConfig {
+        modalities: Some(vec!["text".to_string()]),
+        ..Default::default()
+    }).await.unwrap();
+    session.send_text("Hello").await.unwrap();
+    let response = session.wait_for_response_done().await.unwrap();
+    assert_eq!(response.status, "completed");
     session.close().await.ok();
 }

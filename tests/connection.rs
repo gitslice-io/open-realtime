@@ -2,13 +2,14 @@ use open_realtime::protocol::ServerEvent;
 use std::time::Duration;
 
 mod common;
-use common::connect;
+#[allow(unused_imports)]
+use common::{connect_with, fake_transport, openai_connect, TestSession};
 
 #[tokio::test]
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn c1_connect_with_valid_key() {
     dotenvy::dotenv().ok();
-    let session = connect().await.expect("should connect successfully");
+    let session = openai_connect().await.expect("should connect successfully");
     assert!(session.session_id.is_some());
     session.close().await.ok();
 }
@@ -116,6 +117,14 @@ async fn c5_connect_model_query_param() {
 #[ignore = "requires OAI_KEY env var and live API"]
 async fn c6_graceful_disconnect() {
     dotenvy::dotenv().ok();
-    let session = connect().await.expect("should connect successfully");
+    let session = openai_connect().await.expect("should connect successfully");
     session.close().await.expect("should close cleanly");
+}
+
+#[tokio::test]
+async fn local_fake_connect_works() {
+    let fake = fake_transport();
+    let session = connect_with(fake).await.unwrap();
+    assert!(session.session_id.is_some());
+    session.close().await.ok();
 }
