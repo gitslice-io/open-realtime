@@ -1,4 +1,3 @@
-use std::time::Duration;
 
 /// Turn-taking state machine inspired by pipecat's model.
 ///
@@ -87,7 +86,7 @@ impl TurnTakingMachine {
             .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
             .collect();
 
-        let sum_sq: f64 = samples.iter().map(|&s| (s as f64 * s as f64)).sum();
+        let sum_sq: f64 = samples.iter().map(|&s| s as f64 * s as f64 ).sum();
         let rms = (sum_sq / samples.len() as f64).sqrt();
         (rms / 32768.0) as f32 // Normalize to 0.0-1.0
     }

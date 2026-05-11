@@ -1,5 +1,6 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use async_trait::async_trait;
+#[allow(unused_imports)]
 use crate::protocol::{
     AudioFormat, ClientEvent, ConversationItem, ContentPart, OutputContent,
     ResponseOutputItem, ResponseState, ServerEvent, SessionConfig, SessionState,

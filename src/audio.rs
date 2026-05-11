@@ -53,7 +53,7 @@ pub fn base64_to_samples(b64: &str) -> Result<Vec<i16>, String> {
 
 /// Validate that PCM16 data is within acceptable range.
 pub fn validate_pcm16_range(samples: &[i16]) -> bool {
-    samples.iter().all(|&s| s >= i16::MIN && s <= i16::MAX)
+    samples.iter().all(|&s| (i16::MIN..=i16::MAX).contains(&s))
 }
 
 /// Get the duration in milliseconds of PCM16 data at 24000 Hz.
